@@ -2,6 +2,9 @@
 
 A production-ready Multi-Modal Retrieval-Augmented Generation (RAG) system capable of processing and answering questions from documents containing text, tables, and figures.
 
+<img width="1362" height="639" alt="image" src="https://github.com/user-attachments/assets/fe277a18-4055-4980-8e24-1a46b0fe8f28" />
+
+
 ## Features
 
 - **Multi-Modal Ingestion**: Extracts and processes text, tables, and figures from PDFs.
@@ -62,5 +65,6 @@ python demo.py
 - **Vector DB**: ChromaDB
 - **Frontend**: Streamlit
 - **PDF Processing**: PyMuPDF, Tabula, PDF2Image
+
 
 
