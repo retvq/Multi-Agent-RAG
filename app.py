@@ -404,11 +404,57 @@ def format_table_answer(text: str, intent: str) -> str:
     """
     Format table answers with proper HTML table layout.
     
-    Detects table-like content and converts to styled HTML table.
+    Detects table-like content (markdown tables or year-based data) and converts to styled HTML table.
     """
     import re
+    import pandas as pd
     
-    # Check if this looks like table content
+    # Check if this is a markdown table (pipes in content)
+    if '|' in text and text.count('|') >= 4:
+        try:
+            # Parse markdown table
+            lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+            table_lines = [l for l in lines if '|' in l and not l.startswith('|-') and not re.match(r'^\|[-:| ]+\|$', l)]
+            
+            if len(table_lines) >= 2:
+                # Extract header and data
+                def parse_row(line):
+                    cells = [c.strip() for c in line.split('|')]
+                    return [c for c in cells if c]  # Remove empty strings
+                
+                header = parse_row(table_lines[0])
+                data_rows = [parse_row(l) for l in table_lines[1:] if parse_row(l)]
+                
+                if header and data_rows:
+                    # Build HTML table with styling
+                    table_html = ['<table style="width:100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9rem;">']
+                    
+                    # Header row
+                    table_html.append('<thead><tr style="background: rgba(0, 131, 143, 0.15);">')
+                    for h in header:
+                        table_html.append(f'<th style="padding: 10px; text-align: left; border-bottom: 2px solid rgba(0, 131, 143, 0.4); font-weight: 600;">{h}</th>')
+                    table_html.append('</tr></thead>')
+                    
+                    # Data rows
+                    table_html.append('<tbody>')
+                    for i, row in enumerate(data_rows):
+                        bg = 'rgba(0, 131, 143, 0.03)' if i % 2 == 0 else 'rgba(0, 131, 143, 0.08)'
+                        table_html.append(f'<tr style="background: {bg};">')
+                        for j, cell in enumerate(row):
+                            align = 'left' if j == 0 else 'right'
+                            table_html.append(f'<td style="padding: 10px; text-align: {align}; border-bottom: 1px solid rgba(0, 131, 143, 0.15);">{cell}</td>')
+                        table_html.append('</tr>')
+                    table_html.append('</tbody></table>')
+                    
+                    # Return any text before the table + the formatted table
+                    pre_table = text.split('|')[0].strip()
+                    if pre_table and len(pre_table) > 10:
+                        return f"<p>{pre_table}</p>" + '\n'.join(table_html)
+                    return '\n'.join(table_html)
+        except Exception:
+            pass  # Fall through to other methods
+    
+    # Check if this looks like year-based table content
     if intent != "table_lookup" and "table" not in text.lower()[:100]:
         return text
     
@@ -416,7 +462,7 @@ def format_table_answer(text: str, intent: str) -> str:
     if len(lines) < 2:
         return text
     
-    # Try to detect table structure
+    # Try to detect table structure with years
     html_parts = []
     table_started = False
     header_row = None
@@ -432,60 +478,48 @@ def format_table_answer(text: str, intent: str) -> str:
         years = re.findall(year_pattern, line)
         
         if len(years) >= 3 and not table_started:
-            # This is likely a header row with years
             header_row = years
             table_started = True
             continue
         
         if table_started and header_row:
-            # Parse data row - extract label and values
-            # Find where the numbers start
             num_pattern = r'(-?\d+\.?\d*)'
             values = re.findall(num_pattern, line)
             
             if len(values) >= len(header_row):
-                # Extract label - everything before the first number sequence
-                # Split on the first occurrence of numbers to get the label
                 label_match = re.match(r'^(.*?)(?=\s*-?\d)', line)
                 if label_match:
                     label = label_match.group(1).strip()
-                    # Clean up markdown formatting
                     label = re.sub(r'\*+', '', label).strip()
                 else:
-                    # Fallback: use the first part before pipe/comma or first 40 chars
                     label = re.split(r'[|,]', line)[0].strip()[:40]
                 
                 if not label or len(label) < 2:
                     label = "Data Row"
                 
-                # Take the last N values to match header count
                 row_values = values[-len(header_row):]
                 data_rows.append((label, row_values))
             else:
-                # Not a data row, might be a section header
                 html_parts.append(f"<p><strong>{line}</strong></p>")
         elif not table_started:
             html_parts.append(f"<p>{line}</p>")
     
     if header_row and data_rows:
-        # Build HTML table
-        table_html = ['<table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">']
+        table_html = ['<table style="width:100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9rem;">']
         
-        # Header
-        table_html.append('<thead><tr style="background: rgba(102,126,234,0.2);">')
-        table_html.append('<th style="padding: 8px; text-align: left; border-bottom: 2px solid rgba(102,126,234,0.5);">Indicator</th>')
+        table_html.append('<thead><tr style="background: rgba(0, 131, 143, 0.15);">')
+        table_html.append('<th style="padding: 10px; text-align: left; border-bottom: 2px solid rgba(0, 131, 143, 0.4); font-weight: 600;">Indicator</th>')
         for year in header_row:
-            table_html.append(f'<th style="padding: 8px; text-align: right; border-bottom: 2px solid rgba(102,126,234,0.5);">{year}</th>')
+            table_html.append(f'<th style="padding: 10px; text-align: right; border-bottom: 2px solid rgba(0, 131, 143, 0.4); font-weight: 600;">{year}</th>')
         table_html.append('</tr></thead>')
         
-        # Body
         table_html.append('<tbody>')
         for i, (label, values) in enumerate(data_rows):
-            bg = 'rgba(255,255,255,0.02)' if i % 2 == 0 else 'rgba(255,255,255,0.05)'
+            bg = 'rgba(0, 131, 143, 0.03)' if i % 2 == 0 else 'rgba(0, 131, 143, 0.08)'
             table_html.append(f'<tr style="background: {bg};">')
-            table_html.append(f'<td style="padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">{label}</td>')
+            table_html.append(f'<td style="padding: 10px; border-bottom: 1px solid rgba(0, 131, 143, 0.15);">{label}</td>')
             for val in values:
-                table_html.append(f'<td style="padding: 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.1);">{val}</td>')
+                table_html.append(f'<td style="padding: 10px; text-align: right; border-bottom: 1px solid rgba(0, 131, 143, 0.15);">{val}</td>')
             table_html.append('</tr>')
         table_html.append('</tbody></table>')
         
@@ -947,7 +981,9 @@ if search_clicked and query.strip():
         retrieval, generator = load_rag_system(
             use_llm=use_llm,
             collection_name=collection_name,
-            vector_store_path=vector_store_path
+            vector_store_path=vector_store_path,
+            api_key=os.environ.get("GOOGLE_API_KEY"),
+            groq_api_key=os.environ.get("GROQ_API_KEY")
         )
         
         # Override LLM setting if changed
