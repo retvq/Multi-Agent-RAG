@@ -188,6 +188,11 @@ Generate a grounded answer using ONLY the context above. Output valid JSON."""
                 reasoning=f"JSON parse error: {e}",
             )
         except Exception as e:
+            error_str = str(e).lower()
+            # Re-raise rate limit and quota errors to trigger Groq fallback
+            if "429" in str(e) or "quota" in error_str or "rate" in error_str or "exceeded" in error_str:
+                raise  # Let the caller handle this and try Groq
+            # For other errors, return as response
             return LLMResponse(
                 answer_text=f"Error generating response: {str(e)}",
                 cited_chunks=[],
