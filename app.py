@@ -543,6 +543,7 @@ def format_table_answer(text: str, intent: str) -> str:
 
 def _build_html_table(header: list, data_rows: list) -> str:
     """Build styled HTML table from header and data rows."""
+    import re
     table_html = ['<table style="width:100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9rem; border: 1px solid rgba(0, 131, 143, 0.2);">']
     
     # Header
