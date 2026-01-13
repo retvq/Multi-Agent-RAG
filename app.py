@@ -32,6 +32,28 @@ from src.generation.generator import AnswerGenerator, classify_intent
 
 
 # =============================================================================
+# SECRETS HELPER (works on both local and Streamlit Cloud)
+# =============================================================================
+
+def get_secret(key: str, default: str = None) -> str:
+    """
+    Get a secret value from Streamlit secrets or environment variables.
+    
+    Priority: st.secrets > os.environ > default
+    This ensures the app works on both Streamlit Cloud and locally.
+    """
+    # Try Streamlit secrets first (for Streamlit Cloud)
+    try:
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    
+    # Fall back to environment variable (for local development)
+    return os.environ.get(key, default)
+
+
+# =============================================================================
 # PAGE CONFIG
 # =============================================================================
 # ... (intermediate lines skipped)
@@ -727,8 +749,8 @@ with st.sidebar:
             use_llm=use_llm,
             collection_name=collection_name,
             vector_store_path=vector_store_path,
-            api_key=user_api_key if user_api_key else None,
-            groq_api_key=os.environ.get("GROQ_API_KEY")
+            api_key=user_api_key if user_api_key else get_secret("GOOGLE_API_KEY"),
+            groq_api_key=get_secret("GROQ_API_KEY")
         )
         chunk_count = len(retrieval.keyword_index)
         
@@ -967,8 +989,8 @@ if search_clicked and query.strip():
             use_llm=use_llm,
             collection_name=collection_name,
             vector_store_path=vector_store_path,
-            api_key=os.environ.get("GOOGLE_API_KEY"),
-            groq_api_key=os.environ.get("GROQ_API_KEY")
+            api_key=get_secret("GOOGLE_API_KEY"),
+            groq_api_key=get_secret("GROQ_API_KEY")
         )
         
         # Override LLM setting if changed
