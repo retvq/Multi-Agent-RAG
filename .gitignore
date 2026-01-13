@@ -33,6 +33,8 @@ ENV/
 
 # Project Specific
 outputs/
+!outputs/vectordb/
+!outputs/vectordb/chunks.json
 .gemini/
 *.pdf
 !qatar_test_doc.pdf
