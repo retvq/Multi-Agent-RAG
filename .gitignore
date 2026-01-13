@@ -39,6 +39,7 @@ outputs/
 !multi-modal_rag_qa_assignment.pdf
 *.txt
 !requirements.txt
+!packages.txt
 !README.md
 
 # OS
