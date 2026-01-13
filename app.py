@@ -35,22 +35,7 @@ from src.generation.generator import AnswerGenerator, classify_intent
 # PAGE CONFIG
 # =============================================================================
 # ... (intermediate lines skipped)
-@st.cache_resource
-def load_rag_system(use_llm: bool = True, collection_name: str = "chunks", vector_store_path: str = "./outputs/vectordb", api_key: str = None):
-    """Load and cache the RAG system components."""
-    
-    # Ensure demo is initialized if using default collection
-    if collection_name == "chunks":
-        initialize_demo()
-        
-    retrieval = RetrievalPipeline(
-        vector_store_path=vector_store_path,
-        use_mock=False,
-        collection_name=collection_name
-    )
-    # Pass api_key to generator if provided
-    generator = AnswerGenerator(use_llm=use_llm, api_key=api_key)
-    return retrieval, generator
+# NOTE: load_rag_system is defined later in the file (after session state initialization)
 
 # =============================================================================
 # PAGE CONFIG
