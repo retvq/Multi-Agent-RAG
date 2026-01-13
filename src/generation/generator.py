@@ -888,6 +888,8 @@ class AnswerGenerator:
         self.use_llm = use_llm
         self.llm_client = llm_client
         self.groq_client = None
+        self._llm_available = False
+        self._groq_available = False
         
         # Try to initialize Gemini client if use_llm is True
         if self.use_llm and self.llm_client is None:
@@ -895,23 +897,32 @@ class AnswerGenerator:
                 from src.generation.llm_client import GeminiClient
                 self.llm_client = GeminiClient(api_key=api_key)
                 self._llm_available = True
+                print("✓ Gemini client initialized")
             except Exception as e:
-                print(f"Warning: Gemini client failed to initialize: {e}")
+                print(f"⚠ Gemini client failed: {e}")
                 self._llm_available = False
-        else:
-            self._llm_available = self.llm_client is not None
+        elif self.llm_client is not None:
+            self._llm_available = True
         
-        # Try to initialize Groq client as fallback
+        # Try to initialize Groq client (fallback OR primary if Gemini failed)
         if self.use_llm:
             try:
                 from src.generation.llm_client import GroqClient
                 self.groq_client = GroqClient(api_key=groq_api_key)
                 self._groq_available = True
+                print("✓ Groq client initialized (fallback ready)")
             except Exception as e:
-                print(f"Note: Groq fallback not available: {e}")
+                print(f"⚠ Groq client failed: {e}")
                 self._groq_available = False
-        else:
-            self._groq_available = False
+        
+        # Log which LLM will be used
+        if self.use_llm:
+            if self._llm_available:
+                print("→ Using Gemini as primary LLM")
+            elif self._groq_available:
+                print("→ Using Groq as primary LLM (Gemini unavailable)")
+            else:
+                print("→ No LLM available, will use rule-based extraction")
     
     def generate(self, query: str, chunks: List[Dict]) -> Answer:
         """Generate answer from query and retrieved chunks."""
@@ -926,22 +937,28 @@ class AnswerGenerator:
             return self._not_found(query, intent, "No relevant documents retrieved.", start_time)
         
         # =====================================================
-        # LLM-BASED GENERATION PATH (Gemini -> Groq fallback)
+        # LLM-BASED GENERATION PATH
+        # Priority: Gemini -> Groq -> Rule-based
         # =====================================================
-        if self.use_llm and self._llm_available:
-            try:
-                return self._generate_with_llm(query, chunks, intent, start_time)
-            except Exception as e:
-                print(f"Gemini generation failed: {e}")
-                # Try Groq fallback
-                if self._groq_available:
-                    try:
-                        print("Attempting Groq fallback...")
-                        return self._generate_with_groq(query, chunks, intent, start_time)
-                    except Exception as groq_e:
-                        print(f"Groq fallback also failed: {groq_e}")
-                # Fall through to rule-based
-                print("Falling back to rule-based generation")
+        if self.use_llm:
+            # Try Gemini first (if available)
+            if self._llm_available:
+                try:
+                    return self._generate_with_llm(query, chunks, intent, start_time)
+                except Exception as e:
+                    print(f"✗ Gemini generation failed: {e}")
+                    # Fall through to Groq
+            
+            # Try Groq (fallback or primary if Gemini unavailable)
+            if self._groq_available:
+                try:
+                    print("→ Trying Groq...")
+                    return self._generate_with_groq(query, chunks, intent, start_time)
+                except Exception as e:
+                    print(f"✗ Groq generation failed: {e}")
+            
+            # Both LLMs failed
+            print("→ Falling back to rule-based generation")
         
         # =====================================================
         # RULE-BASED GENERATION PATH (original logic)
