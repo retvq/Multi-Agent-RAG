@@ -301,7 +301,7 @@ def initialize_demo():
         return False
 
 @st.cache_resource
-def load_rag_system(use_llm: bool = True, collection_name: str = "chunks", vector_store_path: str = "./outputs/vectordb", api_key: str = None):
+def load_rag_system(use_llm: bool = True, collection_name: str = "chunks", vector_store_path: str = "./outputs/vectordb", api_key: str = None, groq_api_key: str = None):
     """Load and cache the RAG system components."""
     
     # Ensure demo is initialized if using default collection
@@ -313,7 +313,7 @@ def load_rag_system(use_llm: bool = True, collection_name: str = "chunks", vecto
         use_mock=False,
         collection_name=collection_name
     )
-    generator = AnswerGenerator(use_llm=use_llm, api_key=api_key)
+    generator = AnswerGenerator(use_llm=use_llm, api_key=api_key, groq_api_key=groq_api_key)
     return retrieval, generator
 
 
@@ -708,7 +708,8 @@ with st.sidebar:
             use_llm=use_llm,
             collection_name=collection_name,
             vector_store_path=vector_store_path,
-            api_key=user_api_key if user_api_key else None
+            api_key=user_api_key if user_api_key else None,
+            groq_api_key=os.environ.get("GROQ_API_KEY")
         )
         chunk_count = len(retrieval.keyword_index)
         

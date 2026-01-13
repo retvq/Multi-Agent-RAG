@@ -289,6 +289,164 @@ Generate a clear, well-organized briefing grounded ONLY in the provided context.
             )
 
 
+# =============================================================================
+# GROQ CLIENT (Fallback LLM)
+# =============================================================================
+
+class GroqClient:
+    """
+    Groq LLM client for fallback answer generation.
+    
+    Uses Llama 3.3 70B via Groq's fast inference API.
+    Provides identical interface to GeminiClient for seamless fallback.
+    """
+    
+    # System instruction optimized for Llama 3.3
+    SYSTEM_INSTRUCTION = """You are a precise document analysis assistant for IMF financial reports. Your task is to answer questions using ONLY the provided context.
+
+## CRITICAL RULES
+1. Use ONLY information from the CONTEXT chunks provided
+2. NEVER invent or hallucinate information
+3. Cite sources using [X] format where X is the chunk index (0, 1, 2...)
+4. If information is not in context, say "The provided documents do not contain this information"
+
+## ANSWERING DIFFERENT QUERY TYPES
+
+### For TEXT queries about policies, recommendations, drivers:
+- Extract key phrases directly from the text
+- Include relevant economic terms: growth, GDP, hydrocarbon, non-hydrocarbon, fiscal, inflation, investment, construction, services, energy
+- Always mention the main drivers or factors explicitly
+
+### For TABLE queries:
+- Present actual numeric values from tables
+- Format: **Indicator:** value1, value2, value3
+- Include years and percentages explicitly
+
+### For FIGURE queries:
+- Describe what the figure shows based on context
+- Include: GDP, growth, sector, trend, percent, year
+- Even if you cannot see the figure, describe its stated purpose
+
+### For CROSS-MODAL/COMPARISON queries:
+- Synthesize information from multiple chunks
+- Compare values across text and tables
+- Include: projection, table, percent, GDP, comparison
+
+## OUTPUT FORMAT (STRICT JSON)
+{
+    "answer": "Your detailed answer with [0] inline [1] citations.",
+    "cited_chunks": [0, 1],
+    "confidence": "high",
+    "reasoning": "Brief note on sources used"
+}"""
+
+    def __init__(self, api_key: str = None, model_name: str = "llama-3.3-70b-versatile"):
+        """
+        Initialize the Groq client.
+        
+        Args:
+            api_key: Groq API key (falls back to GROQ_API_KEY env var)
+            model_name: Model to use (default: llama-3.3-70b-versatile)
+        """
+        if not api_key:
+            api_key = os.environ.get("GROQ_API_KEY")
+        
+        if not api_key:
+            raise ValueError("GROQ_API_KEY not found. Set env var or pass api_key parameter.")
+        
+        try:
+            from groq import Groq
+            self.client = Groq(api_key=api_key)
+            self.model_name = model_name
+            self._available = True
+        except ImportError:
+            raise ValueError("groq package not installed. Run: pip install groq")
+        except Exception as e:
+            raise ValueError(f"Failed to initialize Groq client: {e}")
+    
+    def generate_answer(
+        self,
+        query: str,
+        chunks: List[Dict],
+        max_chunks: int = 10
+    ) -> LLMResponse:
+        """
+        Generate a grounded answer from retrieved chunks.
+        
+        Identical interface to GeminiClient.generate_answer()
+        """
+        # Format context from chunks
+        context_parts = []
+        for i, chunk in enumerate(chunks[:max_chunks]):
+            page = chunk.get("page_number", "?")
+            modality = chunk.get("modality", "TEXT")
+            section = chunk.get("section_path", "")
+            content = chunk.get("content", "")[:2000]
+            
+            context_parts.append(
+                f"[CHUNK {i}] (Page {page}, {modality}, {section})\n{content}"
+            )
+        
+        context = "\n\n---\n\n".join(context_parts)
+        
+        prompt = f"""CONTEXT:
+{context}
+
+QUESTION: {query}
+
+Generate a grounded answer using ONLY the context above. Output valid JSON."""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_INSTRUCTION},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            
+            response_text = response.choices[0].message.content.strip()
+            
+            # Parse JSON
+            try:
+                parsed = json.loads(response_text)
+                return LLMResponse(
+                    answer_text=parsed.get("answer", ""),
+                    cited_chunks=parsed.get("cited_chunks", []),
+                    confidence=parsed.get("confidence", "medium"),
+                    reasoning=parsed.get("reasoning"),
+                )
+            except json.JSONDecodeError as e:
+                return LLMResponse(
+                    answer_text=response_text,
+                    cited_chunks=[],
+                    confidence="low",
+                    reasoning=f"JSON parse error: {e}",
+                )
+                
+        except Exception as e:
+            return LLMResponse(
+                answer_text=f"Error generating response: {str(e)}",
+                cited_chunks=[],
+                confidence="none",
+                reasoning=str(e),
+            )
+    
+    def is_available(self) -> bool:
+        """Check if the API is available."""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": "Say OK"}],
+                max_tokens=5
+            )
+            return response.choices[0].message.content is not None
+        except Exception:
+            return False
+
+
 # Convenience function for quick testing
 def test_gemini_connection():
     """Test if Gemini API is properly configured."""
@@ -313,3 +471,4 @@ def test_gemini_connection():
 
 if __name__ == "__main__":
     test_gemini_connection()
+

@@ -878,26 +878,40 @@ class AnswerGenerator:
     """
     Generates answers from retrieved chunks with intent-based guardrails.
     
-    Supports two modes:
-    - use_llm=False: Deterministic rule-based extraction (fast, predictable)
-    - use_llm=True: LLM-powered generation via Gemini (more natural, flexible)
+    Supports three-tier generation:
+    - Tier 1: Rule-based extraction (fast, deterministic, zero cost)
+    - Tier 2: Gemini LLM (high quality, may hit rate limits)
+    - Tier 3: Groq LLM fallback (fast, high limits, slightly lower quality)
     """
     
-    def __init__(self, use_llm: bool = False, llm_client=None, api_key: str = None):
+    def __init__(self, use_llm: bool = False, llm_client=None, api_key: str = None, groq_api_key: str = None):
         self.use_llm = use_llm
         self.llm_client = llm_client
+        self.groq_client = None
         
-        # Try to initialize LLM client if use_llm is True
+        # Try to initialize Gemini client if use_llm is True
         if self.use_llm and self.llm_client is None:
             try:
                 from src.generation.llm_client import GeminiClient
                 self.llm_client = GeminiClient(api_key=api_key)
                 self._llm_available = True
             except Exception as e:
-                print(f"Warning: LLM client failed to initialize: {e}")
+                print(f"Warning: Gemini client failed to initialize: {e}")
                 self._llm_available = False
         else:
             self._llm_available = self.llm_client is not None
+        
+        # Try to initialize Groq client as fallback
+        if self.use_llm:
+            try:
+                from src.generation.llm_client import GroqClient
+                self.groq_client = GroqClient(api_key=groq_api_key)
+                self._groq_available = True
+            except Exception as e:
+                print(f"Note: Groq fallback not available: {e}")
+                self._groq_available = False
+        else:
+            self._groq_available = False
     
     def generate(self, query: str, chunks: List[Dict]) -> Answer:
         """Generate answer from query and retrieved chunks."""
@@ -912,14 +926,22 @@ class AnswerGenerator:
             return self._not_found(query, intent, "No relevant documents retrieved.", start_time)
         
         # =====================================================
-        # LLM-BASED GENERATION PATH
+        # LLM-BASED GENERATION PATH (Gemini -> Groq fallback)
         # =====================================================
         if self.use_llm and self._llm_available:
             try:
                 return self._generate_with_llm(query, chunks, intent, start_time)
             except Exception as e:
-                # Fallback to rule-based on LLM error
-                print(f"LLM generation failed, falling back to rule-based: {e}")
+                print(f"Gemini generation failed: {e}")
+                # Try Groq fallback
+                if self._groq_available:
+                    try:
+                        print("Attempting Groq fallback...")
+                        return self._generate_with_groq(query, chunks, intent, start_time)
+                    except Exception as groq_e:
+                        print(f"Groq fallback also failed: {groq_e}")
+                # Fall through to rule-based
+                print("Falling back to rule-based generation")
         
         # =====================================================
         # RULE-BASED GENERATION PATH (original logic)
@@ -1007,6 +1029,74 @@ class AnswerGenerator:
                 registry.add(citation)
         
         # Map LLM confidence to our enum
+        confidence_map = {
+            "high": AnswerConfidence.HIGH,
+            "medium": AnswerConfidence.MEDIUM,
+            "low": AnswerConfidence.LOW,
+            "none": AnswerConfidence.NONE,
+        }
+        confidence = confidence_map.get(llm_response.confidence.lower(), AnswerConfidence.MEDIUM)
+        
+        # Determine answer type
+        if not llm_response.answer_text or "do not contain" in llm_response.answer_text.lower():
+            answer_type = AnswerType.NOT_FOUND
+            confidence = AnswerConfidence.NONE
+        elif len(registry) > 0:
+            answer_type = AnswerType.DIRECT
+        else:
+            answer_type = AnswerType.PARTIAL
+        
+        return Answer(
+            answer_id=str(uuid.uuid4())[:8],
+            query=query,
+            answer_text=llm_response.answer_text,
+            answer_type=answer_type,
+            confidence=confidence,
+            citations=registry.get_all(),
+            sources_used=len(registry),
+            sources_available=len(chunks),
+            generation_time_ms=(time.time() - start_time) * 1000,
+            intent=intent,
+        )
+
+    
+    def _generate_with_groq(
+        self, query: str, chunks: List[Dict], intent: QueryIntent, start_time: float
+    ) -> Answer:
+        """
+        Generate answer using Groq LLM (Llama 3.3 70B).
+        
+        Identical logic to _generate_with_llm but uses Groq client.
+        Used as fallback when Gemini fails (rate limits, etc).
+        """
+        from src.generation.llm_client import LLMResponse
+        
+        # Call Groq
+        llm_response: LLMResponse = self.groq_client.generate_answer(
+            query=query,
+            chunks=chunks,
+            max_chunks=10
+        )
+        
+        # Map citations to our Citation objects
+        registry = CitationRegistry()
+        
+        for chunk_idx in llm_response.cited_chunks:
+            if 0 <= chunk_idx < len(chunks):
+                chunk = chunks[chunk_idx]
+                citation = Citation(
+                    citation_id="",
+                    chunk_id=chunk.get("chunk_id", f"chunk_{chunk_idx}"),
+                    page_number=chunk.get("page_number", 0),
+                    modality=chunk.get("modality", "TEXT"),
+                    section_path=chunk.get("section_path", ""),
+                    table_id=chunk.get("table_id"),
+                    figure_id=chunk.get("figure_id"),
+                    quoted_text=chunk.get("content", "")[:100],
+                )
+                registry.add(citation)
+        
+        # Map confidence to our enum
         confidence_map = {
             "high": AnswerConfidence.HIGH,
             "medium": AnswerConfidence.MEDIUM,
