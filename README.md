@@ -4,6 +4,7 @@ A production-ready Multi-Modal Retrieval-Augmented Generation (RAG) system capab
 
 ![20260111-1657-49 1187260-ezgif com-video-to-gif-converter](https://github.com/user-attachments/assets/b953c176-ab0c-4a70-b223-a8a4fb70b67f)
 
+[Project Walkthrough Video](https://drive.google.com/file/d/1iaXi_TpkxDMz7jvZw8lbeqcs4NxS5e1D/view?usp=drive_link) 
 
 ## Features
 
@@ -65,6 +66,7 @@ python demo.py
 - **Vector DB**: ChromaDB
 - **Frontend**: Streamlit
 - **PDF Processing**: PyMuPDF, Tabula, PDF2Image
+
 
 
 
